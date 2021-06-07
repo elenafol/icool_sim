@@ -1,0 +1,72 @@
+ 
+ &SUB apertr  0.3
+ &SUB ELEN   0.1
+ 
+ !Control variables
+ &cont npart=1000 bgen=.true. dectrk=.true. f9dp=8 !steprk=.false.
+ varstep=.true. nprnt=-1 prlevel=1 ntuple=.false.
+ spin=.false. spintrk=0 spinmatter=0 bzfldprd=20
+ fsav=.true. fsavset=.true. izfile=581 ! rfdiag=89
+ phasemodel=3 output1=.true. /
+ &bmt nbeamtyp=1 /
+ 1 2 1. 1
+ 0. 0. 0. 0.0 0.00 0.1
+ !sigmas
+ 0.00246 0.00246 0. 0.012 0.012 0.
+ ! correlation for canonical momentum, 30 = solenoid field
+ 1
+ 1 30.172131985 0.5 0
+ ! 6 0 0.022 0.00246  ! x: alpha, beta, rms geometrical emittance
+ ! 7 0 0.022 0.00246  ! y:
+
+
+ ! what to do with angular momentum
+ ! for the cell with different solenoids? alternating solenoids!
+ ! TODO: include into output how many muons survive --> make ecalc9.out output only muons
+ ! TODO: 1: same field, many short solenoids, vacuum
+ ! 2: same field, many short solenoids, liquid hydrogen --> emmitance going down
+ ! low-field, vac --> high field, LH --> low field, vac. TODO: drifts inbetween? can be added by specifying the sum length of elements shorter than region length?
+ ! --> shorter cells are preferable, due to transmission maximization!
+
+ 
+ &ints ldecay=.true. ldedx=.true. lstrag=.true. lscatter=.true. ldray=.false. lspace=F
+ delev=2 straglev=4 scatlev=1 declev=1 spacelev=2 parbunsc=4.81e12 /
+ 
+ &nhs nhist=2   /
+ 0.100 0.001 50 10 1
+ 0.100 0.001 50 6 27
+ &nsc nscat=0  sauto=.true. /
+ &nzh nzhist=2 /
+ 2  0. 0.22857 70 0. 0. 33
+ 2  10. 0.37143 70 0. 0. 33
+ &nrh nrhist=0 /
+ &nem nemit=36  pxycorr=.true./
+  2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 30 31 32 33 34 35 37 40 45 46 47 48 50
+ &ncv ncovar=3 /
+ 1 17 27
+
+
+SECTION
+!CELL
+! If .true. => flip cell field for alternate cells;
+!.FALSE.
+! Field tag for field that is superimposed over all the regions in this cell;
+!SOL
+! model strength[T] length [m]
+!1 0 0.5 0. 0   0. 0. 0 0 0   0 0 0 0 0
+! 0 0 0 0. 0   0. 0. 0 0 0   0 0 0 0 0
+
+REPEAT
+50
+SREGION
+0.01  1   1e-3
+1  0.   &apertr
+SOL
+1 30.172131985 0.01 0. 0   0. 0. 0 0 0   0 0 0 0 0
+LH
+CBLOCK
+0. 0. 0. 0. 0.   0. 0. 0. 0. 0.
+OUTPUT
+ENDREPEAT
+ENDSECTION
+
