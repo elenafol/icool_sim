@@ -71,14 +71,15 @@ SECTION
 
 
 !######### HIGH_FIELD CELL WITH 1 SOLENOID SPLIT IN SHORT REGIONS ##########
+! ######## Absorber in the peak field regions only #################
   CELL
   1
   .FALSE.
   SOL
   2 30 $CLEN_HF $ELEN_HF 1 $ATT_HF 0 0 0 0 0 0 0 0 0
 
- REPEAT
-  40
+  REPEAT
+  $HF_START_N_REG
   SREGION
   0.0125  1   1e-3
   ! r-number, inner raidus, outer radius
@@ -90,6 +91,38 @@ SECTION
   0. 0. 0. 0. 0.   0. 0. 0. 0. 0.
   OUTPUT
   ENDREPEAT
+
+
+  REPEAT
+  $CENTER_N_REG
+  SREGION
+  0.0125  1   1e-3
+  ! r-number, inner raidus, outer radius
+  1  0.   &apertr
+  NONE
+  0 0 0 0. 0   0. 0. 0 0 0   0 0 0 0 0
+  $ABSORBER
+  CBLOCK
+  0. 0. 0. 0. 0.   0. 0. 0. 0. 0.
+  OUTPUT
+  ENDREPEAT
+
+
+  REPEAT
+  $HF_END_N_REG
+  SREGION
+  0.0125  1   1e-3
+  ! r-number, inner raidus, outer radius
+  1  0.   &apertr
+  NONE
+  0 0 0 0. 0   0. 0. 0 0 0   0 0 0 0 0
+  VAC
+  CBLOCK
+  0. 0. 0. 0. 0.   0. 0. 0. 0. 0.
+  OUTPUT
+  ENDREPEAT
+
+
   ENDCELL
 
 

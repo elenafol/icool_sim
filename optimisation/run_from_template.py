@@ -215,7 +215,7 @@ def run_ecalc():
 
 
         
-def run_icool_with_variables(param):
+def run_icool(param):
     if param is not None:
         with open("./for001_optimizer_template.dat", 'r') as template:
             template_str = template.read()
@@ -223,12 +223,24 @@ def run_icool_with_variables(param):
         lf_slen = 1.98
         hf_slen = 0.5
 
-        # elen_lf_1 = init_param[0] 
-        # att_lf_1 = init_param[1]
-        elen_hf = param[0]
-        att_hf = param[1]
-        # elen_lf_2 = init_param[4]
-        # att_lf_2 = init_param[5]
+        elen_lf_1 = param[0]
+        att_lf_1 = param[1]
+        elen_hf = param[2]
+        att_hf = param[3]
+        elen_lf_2 = param[4]
+        att_lf_2 = param[5]
+
+        start_n_reg = int(elen_hf / 0.0125)
+        center_n_reg = int(40-2*start_n_reg)
+        if 2*start_n_reg + center_n_reg == 40:
+            end_n_reg = start_n_reg
+        elif center_n_reg == 40:
+            center_n_reg = 38
+            start_n_reg = 1
+            end_n_reg = 1
+        else:
+            end_n_reg = 40 - start_n_reg - center_n_reg
+        absorber = "VAC"
 
         # content_to_run = t.substitute(
         #         CLEN_LF_1 = str(lf_slen-2*elen_lf_1), ELEN_LF_1 = str(elen_lf_1), ATT_LF_1 = str(att_lf_1),
@@ -236,9 +248,10 @@ def run_icool_with_variables(param):
         #                                 CLEN_LF_2 = str(lf_slen-2*elen_lf_2), ELEN_LF_2 = str(elen_lf_2), ATT_LF_2 = str(att_lf_2)
         #                                 )
         content_to_run = t.substitute(
-                CLEN_LF_1 = str(1.978), ELEN_LF_1 = str(0.001), ATT_LF_1 = str(0.001),
+                CLEN_LF_1 = str(lf_slen-2*elen_lf_1), ELEN_LF_1 = str(elen_lf_1), ATT_LF_1 = str(att_lf_1),
                                         CLEN_HF = str(hf_slen-2*elen_hf), ELEN_HF = str(elen_hf), ATT_HF = str(att_hf),
-                                        CLEN_LF_2 = str(1.978), ELEN_LF_2 = str(0.001), ATT_LF_2 = str(0.001)
+                                        HF_START_N_REG = str(start_n_reg), CENTER_N_REG = str(center_n_reg), HF_END_N_REG = str(end_n_reg), ABSORBER = absorber,
+                                        CLEN_LF_2 = str(lf_slen-2*elen_lf_2), ELEN_LF_2 = str(elen_lf_2), ATT_LF_2 = str(att_lf_2)
                                         )
         _write_command_file(ICOOL_PATH, content_to_run)
     call("../icool")
@@ -298,7 +311,7 @@ def p_un_normalize(p, p_ave, p_diff):
 def optimization_step(p):
     beta_lf = 0.257 # 0.01904 for p = 0.01, B=3.5 # 0.257 (p=0.135, B = 3.5)
     beta_hf = 0.03 # 0.0133 p=0.01, emitt = 10, B=5T # 0.18 (p=0.135, B = 5T) # 0.03 (0.135, 35T)
-    run_icool_with_variables(p)
+    run_icool(p)
     df, nfinal = run_ecalc()
     bz, z = get_bz("for009.dat")
     emit = df.eperp
@@ -320,8 +333,9 @@ def optimization_step(p):
     lf_2_center = df.loc[df['Z'] == 0.3470E+01, 'beta'].values[0]
 
 
-    loss =  10*np.mean(np.abs(df.alpha[hf_start_idx:hf_end_idx])) + np.std(df.beta[hf_start_idx:hf_end_idx] - beta_hf) + \
-                5*np.abs(df.beta[sec_lf_start_idx]-beta_lf) + 5*np.abs(lf_2_center-beta_lf) + 20 * np.mean(np.abs(df.alpha[sec_lf_start_idx:sec_lf_end_idx]))
+    loss =  10*np.mean(np.abs(df.alpha[hf_start_idx:hf_end_idx])) + 5*np.abs(hf_center - beta_hf) + \
+                5*np.abs(df.beta[sec_lf_start_idx]-beta_lf) + 5*np.abs(lf_2_center-beta_lf) + 5*np.abs(df.beta[sec_lf_end_idx] - beta_lf) + \
+                20 * np.mean(np.abs(df.alpha[sec_lf_start_idx:sec_lf_end_idx]))
 
     return loss
 
@@ -346,15 +360,7 @@ def ES_step(nES, dtES, wES, kES, aES, p_n, i, cES_now, amplitude):
     return p_next
 
 
-def es_optimization(es_steps, init_params, p_min, p_max, osc_size, k_es, plot_on):
-    ES_steps = es_steps
-    # Upper bounds on tuned parameters
-
-    p_max = np.array(p_max)
-
-    # Lower bounds on tuned parameters
-    p_min = np.array(p_min)
-
+def es_optimization(ES_steps, init_params, p_min, p_max, osc_size, k_es, plot_on):
     # Number of parameters being tuned
     nES = len(p_min)
 
@@ -364,14 +370,13 @@ def es_optimization(es_steps, init_params, p_min, p_max, osc_size, k_es, plot_on
     # Difference for normalization
     p_diff = p_max - p_min
 
-
     # This keeps track of the history of all of the parameters being tuned
     pES = np.zeros([ES_steps,nES])
 
     # Start with initial conditions inside of the max/min bounds
     # In this case I will start them near the center of the range
     # pES[0] = p_ave
-    pES[0] = [0.05, 0.075]
+    pES[0] = init_params
 
     # This keeps track of the history of all of the normalized parameters being tuned
     pES_n = np.zeros([ES_steps,nES])
@@ -383,7 +388,7 @@ def es_optimization(es_steps, init_params, p_min, p_max, osc_size, k_es, plot_on
     cES = np.zeros(ES_steps)
 
     # Calculate the initial cost function value based on initial conditions
-    cES[0] = f_ES_minimize(pES[0])
+    cES[0] = optimization_step(pES[0])
 
     # ES dithering frequencies
     wES = np.linspace(1.0,1.75,nES)
@@ -431,7 +436,7 @@ def es_optimization(es_steps, init_params, p_min, p_max, osc_size, k_es, plot_on
         pES[i+1] = p_un_normalize(pES_n[i+1], p_ave, p_diff)
         
         # Calculate new cost function values based on new settings
-        cES[i+1] = f_ES_minimize(pES[i+1])
+        cES[i+1] = optimization_step(pES[i+1])
         
         # Decay the amplitude
         amplitude = amplitude*decay_rate
@@ -450,6 +455,10 @@ def es_optimization(es_steps, init_params, p_min, p_max, osc_size, k_es, plot_on
         plt.subplot(2,1,2)
         plt.plot(pES_n[:,0],label='$p_{ES,1,n}$')
         plt.plot(pES_n[:,1],label='$p_{ES,2,n}$')
+        plt.plot(pES_n[:,2],label='$p_{ES,1,n}$')
+        plt.plot(pES_n[:,3],label='$p_{ES,2,n}$')
+        plt.plot(pES_n[:,4],label='$p_{ES,1,n}$')
+        plt.plot(pES_n[:,5],label='$p_{ES,2,n}$')
         plt.plot(1.0+0.0*pES_n[:,0],'r--',label='bounds')
         plt.plot(-1.0+0.0*pES_n[:,0],'r--')
         plt.legend(frameon=False)
@@ -476,27 +485,35 @@ def param_scan(iter_n, init_params, bounds):
     return res.x
 
 
-def run_optimisation(method):
-    iter_n = 100
-    bounds = [(0.075, 0.2),(0.005, 0.1)]
-    params = [0.05, 0.075]
-    if method == "ES":
-        params = es_optimization(iter_n, params, bounds[0], bounds[1], osc_size = 0.15, k_es = 0.4, plot_on = True)
-    elif method == "diff_evolution":
-        params = param_scan(iter_n, params, bounds)
+def run_optimisation(method, matching, cooling):
+    # parameters are end length and attenuation length of each solenoid iin the cell (3 solenoids = 6 variables)
+    if matching:
+        iter_n = 200
+        bounds = [(0.001, 0.1), (0.001, 0.5), (0.05, 0.1),(0.075, 0.15), (0.001, 0.1), (0.001, 0.5)]
+        params = [0.05, 0.25, 0.05, 0.1, 0.05, 0.25]
+        if method == "ES":
+            params = es_optimization(iter_n, params, np.array([bounds[0][0], bounds[1][0], bounds[2][0], bounds[3][0], bounds[4][0], bounds[5][0]]),
+                np.array([bounds[0][1], bounds[1][1], bounds[2][1], bounds[3][1], bounds[4][1], bounds[5][1]]),
+                osc_size = 0.15, k_es = 0.5, plot_on = True)
+        elif method == "diff_evolution":
+            params = param_scan(iter_n, params, bounds)
+    #if cooling:
+
     return params
 
 
 if __name__ == '__main__':
-    sigma_xy, sigma_px_py, beta_init = define_beam(emit_n=300*1e-06, pz_init=0.135, b_sol=3.5)
-    opt_params = run_optimisation("diff_evolution")
+    # sigma_xy, sigma_px_py, beta_init = define_beam(emit_n=300*1e-06, pz_init=0.135, b_sol=3.5)
+    opt_params = run_optimisation("diff_evolution", matching=True, cooling=False)
     print("Optimal results: {}".format(opt_params))
-    run_icool(opt_params)
+    # opt_params = None just runs exisiting for001 without replacing template settings
+    # run_icool(param=[0.03374751, 0.00773362, 0.0611517, 0.14956967, 0.00195243, 0.00102642])
     dataframe, nfinal = run_ecalc()
     plot_from_ecalc(dataframe, nfinal, ninit=50)
     plot_from_icool("for009.dat")
     
 
+# ES, 6 variables:  [0.03374751 0.00773362 0.0611517  0.14956967 0.00195243 0.00102642]
 
 
 #From ES: [0.01258175 0.1069814]
