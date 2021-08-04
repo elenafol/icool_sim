@@ -67,10 +67,12 @@ def create_data_frame(ecalc_file):
             if len(parts) == 0:
                 continue
             if line.startswith("regn"):
-                for part in parts[2:]:
+                for part in parts[1:]:
+                    if part == '#':
+                        part = "nreg"
                     column_names.append(part)
             elif parts[0].isdigit():
-                table_rows.append(np.array(parts[1:], dtype=float))
+                table_rows.append(np.array(parts, dtype=float))
             elif parts[0].startswith("particles"):
                 nfinal = parts[len(parts)-1]
     dataframe = pd.DataFrame(table_rows, columns=column_names)
@@ -220,26 +222,16 @@ def run_icool(param):
         with open("./for001_optimizer_template.dat", 'r') as template:
             template_str = template.read()
         t = Template(template_str)
-        lf_slen = 1.98
-        hf_slen = 0.5
+        lf_clen = 2
+        hf_clen = 0.5
 
-        elen_lf_1 = param[0]
-        att_lf_1 = param[1]
-        elen_hf = param[2]
-        att_hf = param[3]
-        elen_lf_2 = param[4]
-        att_lf_2 = param[5]
+        elen_lf_1 = 0.001
+        att_lf_1 = 0.001
+        elen_hf = param[0]
+        att_hf = param[1]
+        elen_lf_2 =  param[2]
+        att_lf_2 =  param[3]
 
-        start_n_reg = int(elen_hf / 0.0125)
-        center_n_reg = int(40-2*start_n_reg)
-        if 2*start_n_reg + center_n_reg == 40:
-            end_n_reg = start_n_reg
-        elif center_n_reg == 40:
-            center_n_reg = 38
-            start_n_reg = 1
-            end_n_reg = 1
-        else:
-            end_n_reg = 40 - start_n_reg - center_n_reg
         absorber = "VAC"
 
         # content_to_run = t.substitute(
@@ -247,11 +239,10 @@ def run_icool(param):
         #                                 CLEN_HF = str(hf_slen-2*elen_hf), ELEN_HF = str(elen_hf), ATT_HF = str(att_hf),
         #                                 CLEN_LF_2 = str(lf_slen-2*elen_lf_2), ELEN_LF_2 = str(elen_lf_2), ATT_LF_2 = str(att_lf_2)
         #                                 )
-        content_to_run = t.substitute(
-                CLEN_LF_1 = str(lf_slen-2*elen_lf_1), ELEN_LF_1 = str(elen_lf_1), ATT_LF_1 = str(att_lf_1),
-                                        CLEN_HF = str(hf_slen-2*elen_hf), ELEN_HF = str(elen_hf), ATT_HF = str(att_hf),
-                                        HF_START_N_REG = str(start_n_reg), CENTER_N_REG = str(center_n_reg), HF_END_N_REG = str(end_n_reg), ABSORBER = absorber,
-                                        CLEN_LF_2 = str(lf_slen-2*elen_lf_2), ELEN_LF_2 = str(elen_lf_2), ATT_LF_2 = str(att_lf_2)
+        content_to_run = t.substitute(ELEN_LF_1 = str(elen_lf_1), ATT_LF_1 = str(att_lf_1), LF1_END_LEN_REG = str(elen_lf_1 / 5),
+                                        ELEN_HF = str(elen_hf), ATT_HF = str(att_hf), 
+                                        HF_END_LEN_REG = str(elen_hf / 10), ABSORBER = absorber,
+                                        ELEN_LF_2 = str(elen_lf_2), ATT_LF_2 = str(att_lf_2), LF2_END_LEN_REG = str(elen_lf_2 / 5)
                                         )
         _write_command_file(ICOOL_PATH, content_to_run)
     call("../icool")
@@ -310,33 +301,35 @@ def p_un_normalize(p, p_ave, p_diff):
 
 def optimization_step(p):
     beta_lf = 0.257 # 0.01904 for p = 0.01, B=3.5 # 0.257 (p=0.135, B = 3.5)
-    beta_hf = 0.03 # 0.0133 p=0.01, emitt = 10, B=5T # 0.18 (p=0.135, B = 5T) # 0.03 (0.135, 35T)
+    beta_hf = 0.03 # 0.0133 p=0.01, emitt = 10, B=5T # 0.18 (p=0.135, B = 5T) # 0.03 (0.135, 30T)
     run_icool(p)
     df, nfinal = run_ecalc()
     bz, z = get_bz("for009.dat")
     emit = df.eperp
 
-    first_lf_start_idx = df.loc[df['Z'] == 0.0E+01].index.tolist()[0]
-    first_lf_end_idx = df.loc[df['Z'] == 0.1980E+01].index.tolist()[0]
-    first_lf_beta_icool = df.beta[first_lf_start_idx:first_lf_end_idx]
+    # Filtering of beta values is based on ecalc output for 100 regions 
+    # (max possible number of regions) and output locations defined in for001 template
+    first_lf_beta_icool = df.beta[5:26]
     
-    hf_start_idx = df.loc[df['Z'] == 0.1992E+01].index.tolist()[0] # 0.2000E+01].index.tolist()[0]
-    hf_end_idx = df.loc[df['Z'] == 0.2480E+01].index.tolist()[0]
-    hf_beta_icool = df.beta[hf_start_idx:hf_end_idx]
-  
-    sec_lf_start_idx = df.loc[df['Z'] == 0.2546E+01].index.tolist()[0] # 0.3046E+01].index.tolist()[0]
-    sec_lf_end_idx = df.loc[df['Z'] == 0.446E+01].index.tolist()[0] # 0.496E+01].index.tolist()[0]
-    sec_lf_beta_icool = df.beta[sec_lf_start_idx:sec_lf_end_idx]
+    hf_beta_icool = df.beta[41:60]
 
-    lf_1_center = df.loc[df['Z'] == 0.9900E+00, 'beta'].values[0]
-    hf_center = df.loc[df['Z'] == 0.2305E+01, 'beta'].values[0]
-    lf_2_center = df.loc[df['Z'] == 0.3470E+01, 'beta'].values[0]
+    sec_lf_beta_icool = df.beta[76:97]
 
+    lf_1_center = df.loc[df['nreg']==30, 'beta'].values[0]
+    hf_center = df.loc[df['nreg']==100, 'beta'].values[0]
+    lf_2_center = df.loc[df['nreg']==170, 'beta'].values[0]
 
-    loss =  10*np.mean(np.abs(df.alpha[hf_start_idx:hf_end_idx])) + 5*np.abs(hf_center - beta_hf) + \
-                5*np.abs(df.beta[sec_lf_start_idx]-beta_lf) + 5*np.abs(lf_2_center-beta_lf) + 5*np.abs(df.beta[sec_lf_end_idx] - beta_lf) + \
-                20 * np.mean(np.abs(df.alpha[sec_lf_start_idx:sec_lf_end_idx]))
+    # print(np.abs(hf_center-beta_hf))
+    # print(np.mean(np.abs(hf_beta_icool-beta_hf)))
+    # print(np.abs(lf_2_center-beta_lf))
+    # print(np.mean(np.abs(sec_lf_beta_icool-beta_lf)))
+    # print("B-Feld difference to predefined 30T: {}".format(30-bz[(len(bz)-1)/2]))
+    
 
+    loss = 10*np.abs(hf_center-beta_hf) + 10*np.std(hf_beta_icool- beta_hf) + \
+            np.abs(lf_2_center-beta_lf) + np.std(sec_lf_beta_icool -beta_lf) 
+
+ # 10*np.mean(np.abs(hf_beta_icool-beta_hf)) + np.mean(np.abs(sec_lf_beta_icool-beta_lf)) 
     return loss
 
 
@@ -457,8 +450,8 @@ def es_optimization(ES_steps, init_params, p_min, p_max, osc_size, k_es, plot_on
         plt.plot(pES_n[:,1],label='$p_{ES,2,n}$')
         plt.plot(pES_n[:,2],label='$p_{ES,1,n}$')
         plt.plot(pES_n[:,3],label='$p_{ES,2,n}$')
-        plt.plot(pES_n[:,4],label='$p_{ES,1,n}$')
-        plt.plot(pES_n[:,5],label='$p_{ES,2,n}$')
+        # plt.plot(pES_n[:,4],label='$p_{ES,1,n}$')
+        # plt.plot(pES_n[:,5],label='$p_{ES,2,n}$')
         plt.plot(1.0+0.0*pES_n[:,0],'r--',label='bounds')
         plt.plot(-1.0+0.0*pES_n[:,0],'r--')
         plt.legend(frameon=False)
@@ -488,12 +481,15 @@ def param_scan(iter_n, init_params, bounds):
 def run_optimisation(method, matching, cooling):
     # parameters are end length and attenuation length of each solenoid iin the cell (3 solenoids = 6 variables)
     if matching:
-        iter_n = 200
-        bounds = [(0.001, 0.1), (0.001, 0.5), (0.05, 0.1),(0.075, 0.15), (0.001, 0.1), (0.001, 0.5)]
-        params = [0.05, 0.25, 0.05, 0.1, 0.05, 0.25]
+        iter_n = 100
+        # bounds = [(0.001, 0.1), (0.001, 0.5), (0.05, 0.1),(0.075, 0.15), (0.001, 0.1), (0.001, 0.5)]
+        # params = [0.05, 0.25, 0.05, 0.1, 0.05, 0.25]
+
+        bounds = [(0.05, 0.25), (0.05, 0.25), (0.001, 0.1), (0.001, 0.5)]
+        params = [0.17, 0.17, 0.01, 0.02]
         if method == "ES":
-            params = es_optimization(iter_n, params, np.array([bounds[0][0], bounds[1][0], bounds[2][0], bounds[3][0], bounds[4][0], bounds[5][0]]),
-                np.array([bounds[0][1], bounds[1][1], bounds[2][1], bounds[3][1], bounds[4][1], bounds[5][1]]),
+            params = es_optimization(iter_n, params, np.array([bounds[0][0], bounds[1][0], bounds[2][0], bounds[3][0]]), #, bounds[4][0], bounds[5][0]]),
+                np.array([bounds[0][1], bounds[1][1], bounds[2][1], bounds[3][1]]), #, bounds[4][1], bounds[5][1]]),
                 osc_size = 0.15, k_es = 0.5, plot_on = True)
         elif method == "diff_evolution":
             params = param_scan(iter_n, params, bounds)
@@ -503,11 +499,11 @@ def run_optimisation(method, matching, cooling):
 
 
 if __name__ == '__main__':
-    # sigma_xy, sigma_px_py, beta_init = define_beam(emit_n=300*1e-06, pz_init=0.135, b_sol=3.5)
-    opt_params = run_optimisation("diff_evolution", matching=True, cooling=False)
-    print("Optimal results: {}".format(opt_params))
+    # sigma_xy, sigma_px_py, beta_init = define_beam(emit_n=300*1e-06, pz_init=0.135, b_sol=30)
+    # opt_params = run_optimisation("diff_evolution", matching=True, cooling=False)
+    # print("Optimal results: {}".format(opt_params))
     # opt_params = None just runs exisiting for001 without replacing template settings
-    # run_icool(param=[0.03374751, 0.00773362, 0.0611517, 0.14956967, 0.00195243, 0.00102642])
+    # run_icool(param=opt_params)
     dataframe, nfinal = run_ecalc()
     plot_from_ecalc(dataframe, nfinal, ninit=50)
     plot_from_icool("for009.dat")
@@ -540,3 +536,8 @@ if __name__ == '__main__':
 # 5k optim. steps [2.00681038e-03 1.01630730e-04 9.46015915e-02 1.50357456e-01 6.79543021e-03 4.78802464e-03]
 
 # best? [0.01255352, 0.01681555, 0.17778386, 0.15156702, 0.18737904, 0.16792969]
+
+
+
+
+# [0.67265553 0.10017284 0.19998292], objective function: beta_center - ideal_beta + 10*np.mean(np.abs(df.alpha)), for 3 fields
