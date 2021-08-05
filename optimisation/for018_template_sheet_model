@@ -1,0 +1,4 @@
+Simple Solenoid #, z offset, length of sheet, radius of sheet, current density (A-turns/m), 1: LF edges, 2: HF main solenoid with fringe fields
+2 1
+1 -2.5 10.0 0.5 3500000
+2  2.0 1.0 $HF_RADIUS 30000000
