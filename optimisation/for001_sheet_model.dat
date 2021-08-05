@@ -1,0 +1,86 @@
+ FE Lattice - BL_Eng (Group 5) with Be windows
+
+ &SUB apertr  0.30
+ 
+ &cont npart=1000 bgen=.true. dectrk=.true. f9dp=8 !steprk=.false.
+ varstep=.true. nprnt=-1 prlevel=1 ntuple=.false.
+ spin=.false. spintrk=0 spinmatter=0 bzfldprd=20
+ fsav=.true. fsavset=.true. izfile=581 ! rfdiag=89
+ phasemodel=3 output1=.true. /
+ &bmt nbeamtyp=1 /
+ 1 2 1. 1
+ 0. 0. 0. 0.0 0.00 0.135
+ ! 0.00777021325319 0.00777021325319 0. 0.00407936195792 0.00407936195792 0.
+ 0.00677778899758 0.00677778899758 0. 0.00467667440833 0.00467667440833 0.
+ 1
+ 1 4.6 0 0
+
+ &ints ldecay=.false. ldedx=.true. lstrag=.true. lscatter=.false. ldray=.false. lspace=F delev=2 straglev=4 scatlev=6 declev=1 spacelev=2 parbunsc=4.81e12  /
+ &nhs nhist=2   /
+ 0.100 0.001 50 10 1
+ 0.100 0.001 50 6 27
+ &nsc nscat=0  sauto=.true. /
+ &nzh nzhist=2 /
+ 2  0. 0.22857 70 0. 0. 33
+ 2  10. 0.37143 70 0. 0. 33
+ &nrh nrhist=0 /
+ &nem nemit=20  /
+  1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 27
+ &ncv ncovar=3 /
+ 1 17 27
+
+ SECTION
+
+!########################## SOLENOID CELL #########################
+
+  REFP
+  2 0.2700 0 0. 4
+  
+  CELL
+  1
+  .FALSE.
+  SHEET
+  3 18  0.01 0.01 10.0 &apertr 20. 2 45 0.  1. 0 0 0 0
+  REPEAT
+  200
+  OUTPUT
+  SREGION         ! Drift
+  0.01  1    1e-2
+  1  0.   &apertr
+  NONE
+    0. 0. 0. 0. 0.   0. 0. 0. 0. 0.  0. 0. 0. 0. 0.
+  VAC
+  NONE
+     0. 0. 0. 0. 0.   0. 0. 0. 0. 0.
+  ENDREPEAT
+
+  REPEAT
+  100
+  OUTPUT
+  SREGION         ! Drift
+  0.01  1    1e-2
+  1  0.   &apertr
+  NONE
+    0. 0. 0. 0. 0.   0. 0. 0. 0. 0.  0. 0. 0. 0. 0.
+  LH
+  CBLOCK
+  0. 0. 0. 0. 0.   0. 0. 0. 0. 0.
+  ENDREPEAT
+
+
+  REPEAT
+  200
+  OUTPUT
+  SREGION         ! Drift
+  0.01  1    1e-2
+  1  0.   &apertr
+  NONE
+    0. 0. 0. 0. 0.   0. 0. 0. 0. 0.  0. 0. 0. 0. 0.
+  VAC
+  NONE
+     0. 0. 0. 0. 0.   0. 0. 0. 0. 0.
+  ENDREPEAT
+  OUTPUT
+  ENDCELL
+
+ENDSECTION
