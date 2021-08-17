@@ -75,13 +75,13 @@ def create_data_frame(ecalc_file):
                 table_rows.append(np.array(parts, dtype=float))
             elif parts[0].startswith("particles"):
                 nfinal = parts[len(parts)-1]
+    pd.set_option('display.precision', 6)
     dataframe = pd.DataFrame(table_rows, columns=column_names)
     return dataframe, nfinal
 
 
 
-
-def get_bz(output_file):
+def df_from_icool(output_file):
     table_rows = []
     column_names = []
     output = open(output_file, "r")
@@ -90,31 +90,60 @@ def get_bz(output_file):
         parts = line.split()
         parts = [part.strip() for part in parts]
         if line.startswith("#"):
+            column_names.append('evt')
             column_names.append('flg')
+            column_names.append('reg')
             column_names.append('z')
-            column_names.extend(parts[15:])
+            column_names.extend(parts[12:])
         else:
-            row = [parts[3]] + [parts[8]] + parts[14:]
+            row = [parts[0]] + [parts[3]] +[parts[4]] + [parts[8]] + parts[11:]
             table_rows.append(np.array(row, dtype=float))
     df = pd.DataFrame(table_rows, columns=column_names)
-    bz = df.loc[df['flg'] == 0, 'Bz'].values
-    z = df.loc[df['flg'] == 0, 'z'].values
-    return bz, z
+    return df
 
 
 
-
-def plot_from_icool(output_file):
-    bz, z = get_bz(output_file)
-
+def plot_bz(output_file):
+    df = df_from_icool(output_file)
+    bz = df.loc[df['evt'] == 0, 'Bz'].values
+    z = df.loc[df['evt'] == 0, 'z'].values
     plt.plot(z, bz) #, label="clen=0.4, elen=0.05, alen=0.02")
     plt.xlabel("z [m]")
     plt.ylabel("B(z)[T]")
 
-    # plt.legend()
     plt.tight_layout()
     plt.show()
 
+
+# TODO: faster loop through dataframe
+def plot_energy_spread(output_file):
+    df = df_from_icool(output_file)
+    regions = np.unique(df.reg.values)
+    espread_in_reg = []
+    ekin_in_reg = []
+    for reg in regions:
+        pz_in_reg = df.loc[(df['reg'] == reg) & (df['evt']!=0) & (df['flg']==0), 'Pz'].values
+        ekin_part = []
+        for pz in pz_in_reg:
+            ekin_part.append(energy_mom_translation("pz", pz))
+        espread_in_reg.append(np.std(ekin_part))
+        ekin_in_reg.append(np.mean(ekin_part))
+    z = np.unique(df.loc[df['flg']==0, 'z'].values)
+
+    fig, ax1 = plt.subplots()
+    color = "tab:red"
+    ax1.set_xlabel("z [m]")
+    ax1.set_ylabel(r'$\sigma E_{kin}$ [MeV]', color=color)
+    ax1.plot(z, np.array(espread_in_reg)*1e3, color=color)
+    ax1.tick_params(axis='y', labelcolor=color)
+
+    ax2 = ax1.twinx()
+    color="tab:blue"
+    ax2.set_ylabel(r'$E_{kin}$ [MeV]', color=color)
+    ax2.plot(z, np.array(ekin_in_reg)*1e3, color=color)
+    ax2.tick_params(axis='y', labelcolor=color)
+    fig.tight_layout()
+    plt.show()
 
 
 
@@ -178,7 +207,7 @@ def plot_pz(df):
     ax1.set_ylabel(r"$P_{z} [GeV]$")
     ax1.plot(df.Z, df.Pzavg)
     fig.tight_layout()
-    plt.vlines([1.98, 2.48], np.min(df.Pzavg), np.max(df.Pzavg), linestyles="--")
+    # plt.vlines([1.98, 2.48], np.min(df.Pzavg), np.max(df.Pzavg), linestyles="--")
     plt.show()
 
 
@@ -202,7 +231,7 @@ def plot_beta_alpha(df):
     # plt.savefig("beta_alpha.pdf")
 
     plt.plot(df.Z, df.loc[:,"Lcan(eVs)"], label=r"$L_{can}$")
-    plt.vlines([1.98, 2.48], np.min(df.loc[:,"Lcan(eVs)"]), np.max(df.loc[:,"Lcan(eVs)"]), linestyles="--")
+    # plt.vlines([1.98, 2.48], np.min(df.loc[:,"Lcan(eVs)"]), np.max(df.loc[:,"Lcan(eVs)"]), linestyles="--")
     plt.legend()
     # plt.savefig("lcan.pdf")
     plt.show()
@@ -212,11 +241,14 @@ def plot_beta_alpha(df):
 def run_ecalc():
     # run ecalc with defaults
     call("./ecalc9")
-    dataframe, nfinal = create_data_frame("ecalc9.out")
-    return dataframe, nfinal
+    df, nfinal = create_data_frame("ecalc9.out")
+    emit_start = df.eperp.values[0] *1e6
+    emit_end = df.eperp.values[len(df.eperp.values)-1]*1e6
+    emit_red = ((emit_start-emit_end)/emit_start)
+    print("Start emittance: {0}, Emittance at the end: {1}, Emittance reduction: {2} %".format(emit_start, emit_end, emit_red))
+    return df, nfinal, emit_red
 
-
-        
+       
 def run_icool(param):
     if param is not None:
         with open("./for001_optimizer_template.dat", 'r') as template:
@@ -244,9 +276,23 @@ def run_icool(param):
                                         HF_END_LEN_REG = str(elen_hf / 10), ABSORBER = absorber,
                                         ELEN_LF_2 = str(elen_lf_2), ATT_LF_2 = str(att_lf_2), LF2_END_LEN_REG = str(elen_lf_2 / 5)
                                         )
-        _write_command_file(ICOOL_PATH, content_to_run)
+        _write_command_file(ICOOL_PATH, "for001.dat", content_to_run)
     call("../icool")
 
+
+def run_icool_sheet_mdl(sol_params, beam_params, absorber):
+    with open("./for018_tempplate_sheet_model", 'r') as template:
+        template_str = template.read()
+    t = Template(template_str)
+    content_to_run = t.substitute(HF_RADIUS = str(sol_params[0]))
+    _write_command_file(ICOOL_PATH, "for018.dat", content_to_run)
+    with open("./for001_template_sheet_model", 'r') as template:
+            template_str = template.read()
+    t = Template(template_str)
+    content_to_run = t.substitute(PZ = beam_params[0], SIGMAXY = beam_params[1], 
+                        SIGMAPXY = beam_params[2], NINIT = beam_params[3], ABSORBER = absorber)
+    _write_command_file(ICOOL_PATH, "for001.dat", content_to_run)
+    call("../icool")
 
 
 def _read_template():
@@ -267,8 +313,8 @@ def resolve_template(template_str, emit_t, pz_init, n_init, sol_l, n_sol,
     return content_to_run
 
 
-def _write_command_file(ICOOL_PATH, content):
-    file_path = os.path.join(ICOOL_PATH, "for001.dat")
+def _write_command_file(ICOOL_PATH, file_name, content):
+    file_path = os.path.join(ICOOL_PATH, file_name)
     with open(file_path, "w") as f:
         f.write(content)
 
@@ -284,7 +330,19 @@ def define_beam(emit_n, pz_init, b_sol):
     print("Sigma X, Sigma Y: {}".format(sigma_xy))
     print("Sigma Px, Py = {}".format(sigma_px_py))
     return sigma_xy, sigma_px_py, beta_init
-    
+
+
+
+def energy_mom_translation(quantity, value):
+    res = value
+    if quantity=="ekin":
+        gamma = 1 + ekin/mu_mass
+        res = mu_mass*np.sqrt(gamma**2-1)
+    if quantity=="pz":
+        gamma=np.sqrt((value/mu_mass)**2+1)
+        res = mu_mass*(gamma-1)
+    return res
+
 
 
 # Function that normalizes paramters
@@ -330,6 +388,30 @@ def optimization_step(p):
             np.abs(lf_2_center-beta_lf) + np.std(sec_lf_beta_icool -beta_lf) 
 
  # 10*np.mean(np.abs(hf_beta_icool-beta_hf)) + np.mean(np.abs(sec_lf_beta_icool-beta_lf)) 
+    return loss
+
+
+
+def optimize_radius(p):
+    beta_lf = 0.1956 # 0.01904 for p = 0.01, B=3.5 # 0.257 (p=0.135, B = 3.5)
+    beta_hf = 0.029 # 0.0133 p=0.01, emitt = 10, B=5T # 0.18 (p=0.135, B = 5T) # 0.03 (0.135, 30T)
+    run_icool_sheet_mdl(p)
+    df, nfinal = run_ecalc()
+    # bz, z = get_bz("for009.dat")
+    # emit = df.eperp
+
+    beta_center_hf = df.loc[df['Z'] == 2.5, 'beta'].values[0]
+    beta_start = df.loc[df['Z'] == 0.01, 'beta'].values[0]
+    beta_start_lf = df.loc[df['Z'] == 3.01, 'beta'].values[0]
+    beta_end = df.loc[df['Z'] == 4.9, 'beta'].values[0]
+
+    # bz_center = df.loc[df['Z'] == 2.5, 'Bz'].values[0]
+    # bz_start = df.loc[df['Z'] == 0.01, 'Bz'].values[0]
+    # bz_end = df.loc[df['Z'] == 4.9, 'Bz'].values[0]
+
+
+    loss = np.abs(beta_center_hf - beta_hf)
+    opt_loss.append(loss)
     return loss
 
 
@@ -465,15 +547,8 @@ def es_optimization(ES_steps, init_params, p_min, p_max, osc_size, k_es, plot_on
 
 
 def param_scan(iter_n, init_params, bounds):
-    # cons = {'type':'ineq', 'fun': lambda var : np.array([0.5 + var[0] + var[1],
-    #                                                     0.25 + var[2] + var[3],
-    #                                                     0.5 + var[4] + var[5]])}
-
-    # res = minimize(optimization_step, init_params, method='SLSQP', bounds=bounds,
-    #     options={'rhobeg': 0.7, 'maxiter': iter_n, 'disp': True})
     # can be parallized with workers = -1
-    res = differential_evolution(optimization_step, bounds=bounds, popsize = 6, maxiter=iter_n)
-    # res = minimize(optimization_step, init_params, method='Nelder-Mead', options={'maxiter': iter_n})
+    res = differential_evolution(optimize_radius, bounds=bounds, popsize = 6, maxiter=iter_n)
     result = res.x
     return res.x
 
@@ -481,12 +556,9 @@ def param_scan(iter_n, init_params, bounds):
 def run_optimisation(method, matching, cooling):
     # parameters are end length and attenuation length of each solenoid iin the cell (3 solenoids = 6 variables)
     if matching:
-        iter_n = 100
-        # bounds = [(0.001, 0.1), (0.001, 0.5), (0.05, 0.1),(0.075, 0.15), (0.001, 0.1), (0.001, 0.5)]
-        # params = [0.05, 0.25, 0.05, 0.1, 0.05, 0.25]
-
-        bounds = [(0.05, 0.25), (0.05, 0.25), (0.001, 0.1), (0.001, 0.5)]
-        params = [0.17, 0.17, 0.01, 0.02]
+        iter_n = 10
+        bounds = [(0.35, 0.75)]
+        params = [0.4]
         if method == "ES":
             params = es_optimization(iter_n, params, np.array([bounds[0][0], bounds[1][0], bounds[2][0], bounds[3][0]]), #, bounds[4][0], bounds[5][0]]),
                 np.array([bounds[0][1], bounds[1][1], bounds[2][1], bounds[3][1]]), #, bounds[4][1], bounds[5][1]]),
@@ -499,45 +571,17 @@ def run_optimisation(method, matching, cooling):
 
 
 if __name__ == '__main__':
-    # sigma_xy, sigma_px_py, beta_init = define_beam(emit_n=300*1e-06, pz_init=0.135, b_sol=30)
-    # opt_params = run_optimisation("diff_evolution", matching=True, cooling=False)
-    # print("Optimal results: {}".format(opt_params))
-    # opt_params = None just runs exisiting for001 without replacing template settings
-    # run_icool(param=opt_params)
-    dataframe, nfinal = run_ecalc()
-    plot_from_ecalc(dataframe, nfinal, ninit=50)
-    plot_from_icool("for009.dat")
+    sigma_xy, sigma_px_py, beta_init = define_beam(emit_n=300*1e-06, pz_init=0.135, b_sol=4.5)
+    ninit=1000
+    beam = [0.135, sigma_xy, sigma_px_py, ninit]
     
-
-# ES, 6 variables:  [0.03374751 0.00773362 0.0611517  0.14956967 0.00195243 0.00102642]
-
-
-#From ES: [0.01258175 0.1069814]
-
-
-# HF: [0.01687521 0.09998611]
-#  HF:  [0.03491961 0.19618869], well matched, obj function: np.mean(np.abs(df.alpha)) - 0.01*bz[len(bz)/2] + np.sqrt(np.mean(np.diff(emit*1e4)**2)) +\
-#            np.sqrt(np.mean((beta_lf - sec_lf_beta_icool)**2)) + np.sqrt(np.mean(np.diff(sec_lf_beta_icool)**2)) 
-
-# Optmizing only HF, matched! 0.4734057192813917 0.013297140359304165 1 0.13729199076921184
-# only HF, small oscillations in HF: [0.06469173 0.14366905]
-
-   
-# diff_evolution_rms: [0.01255352 0.01681555 0.08432478 0.10038093 0.01289015 0.01747886]
-#2nd low field: 0.01050142 0.01807154
-
-# absolute stable in 2nd LF:  [0.33859147 0.15450875 0.17778386 0.15156702 0.18737904 0.16792969]
-
-
-# HF: 0.07070456 0.01039159 
-
-# good result [0.01, 0.02, 0.1177, 0.1705, 0.0105, 0.01807]
-
-# 5k optim. steps [2.00681038e-03 1.01630730e-04 9.46015915e-02 1.50357456e-01 6.79543021e-03 4.78802464e-03]
-
-# best? [0.01255352, 0.01681555, 0.17778386, 0.15156702, 0.18737904, 0.16792969]
-
-
-
-
-# [0.67265553 0.10017284 0.19998292], objective function: beta_center - ideal_beta + 10*np.mean(np.abs(df.alpha)), for 3 fields
+    # opt_params = run_optimisation("diff_evolution", matching=True, cooling=False)
+    # opt_params = None just runs exisiting for001 without replacing template settings
+    # print("Optimal results: {}".format(opt_params))
+    # plt.plot(range(len(opt_loss)), opt_loss)
+    # plt.show()
+    # run_icool_sheet_mdl(sol_params=[0.35008916602575973], beam_params = beam, absorber = "LH")
+    plot_energy_spread("for009.dat")
+    dataframe, nfinal, emit_red = run_ecalc()
+    plot_bz("for009.dat")
+    plot_from_ecalc(dataframe, nfinal, ninit)
