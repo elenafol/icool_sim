@@ -121,14 +121,17 @@ def plot_energy_spread(output_file):
     regions = np.unique(df.reg.values)
     espread_in_reg = []
     ekin_in_reg = []
+    z = []
     for reg in regions:
-        pz_in_reg = df.loc[(df['reg'] == reg) & (df['evt']!=0) & (df['flg']==0), 'Pz'].values
-        ekin_part = []
-        for pz in pz_in_reg:
-            ekin_part.append(energy_mom_translation("pz", pz))
-        espread_in_reg.append(np.std(ekin_part))
-        ekin_in_reg.append(np.mean(ekin_part))
-    z = np.unique(df.loc[df['flg']==0, 'z'].values)
+        flg_in_reg = df.loc[df['reg'] == reg, 'flg'].values
+        if any(flg == 0 for flg in flg_in_reg):
+            z.append(df.loc[df['reg'] == reg, 'z'].values[0])
+            pz_in_reg = df.loc[(df['reg'] == reg) & (df['evt']!=0) & (df['flg'] == 0), 'Pz'].values
+            ekin_part = []
+            for pz in pz_in_reg:
+                ekin_part.append(energy_mom_translation("pz", pz))
+            espread_in_reg.append(np.std(ekin_part))
+            ekin_in_reg.append(np.mean(ekin_part))
 
     fig, ax1 = plt.subplots()
     color = "tab:red"
@@ -319,17 +322,20 @@ def _write_command_file(ICOOL_PATH, file_name, content):
         f.write(content)
 
 
-def define_beam(emit_n, pz_init, b_sol):
-    beta_init = ((2*pz_init)/(0.3*b_sol))
-    sigma_xy = np.sqrt((2*emit_n*mu_mass) / (0.3*b_sol))
-    sigma_xy_prime = np.sqrt(((emit_n * mu_mass)/pz_init)*((0.3*b_sol)/(2*pz_init)))
+def define_beam(emit_n, pz_init, b_lf, b_hf):
+    # TODO: pz changes according to lower beta. How to consider this change?
+
+    beta_lf = ((2*pz_init)/(0.3*b_lf))
+    beta_hf = ((2*pz_init)/(0.3*b_hf))
+    sigma_xy = np.sqrt((2*emit_n*mu_mass) / (0.3*b_lf))
+    sigma_xy_prime = np.sqrt(((emit_n * mu_mass)/pz_init)*((0.3*b_lf)/(2*pz_init)))
     sigma_px_py = pz_init*sigma_xy_prime  
 
-    print("For transverse emittance {0} [m], pz {1} [GeV], solenoid with {2} [T]:".format(emit_n, pz_init, b_sol))
-    print("beta = {0} [m]".format(beta_init))
+    print("For transverse emittance {0} [m], pz {1} [GeV], first solenoid with {2} [T]:".format(emit_n, pz_init, b_lf))
+    print("beta LF = {0}, beta HF = {1}  [m]".format(beta_lf, beta_hf))
     print("Sigma X, Sigma Y: {}".format(sigma_xy))
     print("Sigma Px, Py = {}".format(sigma_px_py))
-    return sigma_xy, sigma_px_py, beta_init
+    return sigma_xy, sigma_px_py, beta_lf, beta_hf
 
 
 
@@ -361,9 +367,7 @@ def optimization_step(p):
     beta_lf = 0.257 # 0.01904 for p = 0.01, B=3.5 # 0.257 (p=0.135, B = 3.5)
     beta_hf = 0.03 # 0.0133 p=0.01, emitt = 10, B=5T # 0.18 (p=0.135, B = 5T) # 0.03 (0.135, 30T)
     run_icool(p)
-    df, nfinal = run_ecalc()
-    bz, z = get_bz("for009.dat")
-    emit = df.eperp
+    df, nfinal, emit_red = run_ecalc()
 
     # Filtering of beta values is based on ecalc output for 100 regions 
     # (max possible number of regions) and output locations defined in for001 template
@@ -392,13 +396,9 @@ def optimization_step(p):
 
 
 
-def optimize_radius(p):
-    beta_lf = 0.1956 # 0.01904 for p = 0.01, B=3.5 # 0.257 (p=0.135, B = 3.5)
-    beta_hf = 0.029 # 0.0133 p=0.01, emitt = 10, B=5T # 0.18 (p=0.135, B = 5T) # 0.03 (0.135, 30T)
-    run_icool_sheet_mdl(p)
-    df, nfinal = run_ecalc()
-    # bz, z = get_bz("for009.dat")
-    # emit = df.eperp
+def optimize_radius(p, beam, beta_lf, beta_hf, absorber):
+    run_icool_sheet_mdl(p, beam, absorber)
+    df, nfinal, emit_red = run_ecalc()
 
     beta_center_hf = df.loc[df['Z'] == 2.5, 'beta'].values[0]
     beta_start = df.loc[df['Z'] == 0.01, 'beta'].values[0]
@@ -546,42 +546,76 @@ def es_optimization(ES_steps, init_params, p_min, p_max, osc_size, k_es, plot_on
 
 
 
-def param_scan(iter_n, init_params, bounds):
+def param_scan(beam, beta_lf, beta_hf, absorber, iter_n, init_params, bounds):
     # can be parallized with workers = -1
-    res = differential_evolution(optimize_radius, bounds=bounds, popsize = 6, maxiter=iter_n)
+    res = differential_evolution(optimize_radius, args=(beam, beta_lf, beta_hf, absorber), 
+                bounds=bounds, popsize = 6, maxiter=iter_n)
     result = res.x
     return res.x
 
 
-def run_optimisation(method, matching, cooling):
+def run_optimisation(beam, beta_lf, beta_hf, absorber, method, matching, cooling):
     # parameters are end length and attenuation length of each solenoid iin the cell (3 solenoids = 6 variables)
     if matching:
-        iter_n = 10
-        bounds = [(0.35, 0.75)]
+        iter_n = 5
+        bounds = [(0.3, 0.75)]
         params = [0.4]
         if method == "ES":
             params = es_optimization(iter_n, params, np.array([bounds[0][0], bounds[1][0], bounds[2][0], bounds[3][0]]), #, bounds[4][0], bounds[5][0]]),
                 np.array([bounds[0][1], bounds[1][1], bounds[2][1], bounds[3][1]]), #, bounds[4][1], bounds[5][1]]),
                 osc_size = 0.15, k_es = 0.5, plot_on = True)
         elif method == "diff_evolution":
-            params = param_scan(iter_n, params, bounds)
+            params = param_scan(beam, beta_lf, beta_hf, absorber, iter_n, params, bounds)
     #if cooling:
 
     return params
 
 
 if __name__ == '__main__':
-    sigma_xy, sigma_px_py, beta_init = define_beam(emit_n=300*1e-06, pz_init=0.135, b_sol=4.5)
     ninit=1000
-    beam = [0.135, sigma_xy, sigma_px_py, ninit]
-    
-    # opt_params = run_optimisation("diff_evolution", matching=True, cooling=False)
+    pz = 0.135
+    ekin = energy_mom_translation("pz", pz)
+    print("Ekin for pz = {0} GeV/c is {1} GeV:".format(pz, ekin))
+    absorber = "VAC"
+    sigma_xy, sigma_px_py, beta_lf, beta_hf = define_beam(emit_n=300*1e-06, pz_init=pz, b_lf=4.5, b_hf=30)
+    beam = [pz, sigma_xy, sigma_px_py, ninit]
+    opt_params = run_optimisation(beam, beta_lf, beta_hf, absorber, "diff_evolution", matching=True, cooling=False)
     # opt_params = None just runs exisiting for001 without replacing template settings
-    # print("Optimal results: {}".format(opt_params))
-    # plt.plot(range(len(opt_loss)), opt_loss)
-    # plt.show()
-    # run_icool_sheet_mdl(sol_params=[0.35008916602575973], beam_params = beam, absorber = "LH")
+    print("Optimal results: {}".format(opt_params))
+    plt.plot(range(len(opt_loss)), opt_loss)
+    plt.show()
+    run_icool_sheet_mdl(sol_params=opt_params, beam_params = beam, absorber = "LH")
     plot_energy_spread("for009.dat")
     dataframe, nfinal, emit_red = run_ecalc()
     plot_bz("for009.dat")
     plot_from_ecalc(dataframe, nfinal, ninit)
+
+
+# optimal for p = 135Mev/c
+# r_HF: 0.350089
+
+
+# for p = 150MeV/c: 
+# using optimization results for HF_Radius obtained with matching for 135 MeV/c (r_HF = 0.350089):
+# Start emittance: 300.3, Emittance at the end: 229.6, Emittance reduction: 0.235431235431 %
+# ---> worth to rerun the optimization? ---> TODO: try much lower energies
+
+
+# after running optimization for this specific energy, to match the optics first --> r_HF = 0.5156793093558257:
+# Start emittance: 300.3, Emittance at the end: 224.3, Emittance reduction: 0.25308025308 %
+
+# second optimization run: r_HF = 0.31527386929048584
+# max field: 36.4T, emittance reduction = 29%
+
+
+#optimized for p=100MeV/c: radius = [0.30203018]
+# 
+
+# optimized for p = 0.075
+# HF_radius: 0.5686278729515404, HF: 31.1T
+
+
+
+
+
+
