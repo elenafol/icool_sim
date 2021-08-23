@@ -283,7 +283,9 @@ def run_icool(param):
     call("../icool")
 
 
-def run_icool_sheet_mdl(sol_params, beam_params, absorber):
+#abs_len is in meters
+# TODO: replace in the template
+def run_icool_sheet_mdl(sol_params, beam_params, absorber, abs_len):
     with open("./for018_tempplate_sheet_model", 'r') as template:
         template_str = template.read()
     t = Template(template_str)
@@ -292,8 +294,11 @@ def run_icool_sheet_mdl(sol_params, beam_params, absorber):
     with open("./for001_template_sheet_model", 'r') as template:
             template_str = template.read()
     t = Template(template_str)
+    
+    hf_region_absorber = int(abs_len /  0.01)
+    hf_region_vac =  int((100 - hf_region_absorber) / 2)
     content_to_run = t.substitute(PZ = beam_params[0], SIGMAXY = beam_params[1], 
-                        SIGMAPXY = beam_params[2], NINIT = beam_params[3], ABSORBER = absorber)
+                        SIGMAPXY = beam_params[2], NINIT = beam_params[3], ABSORBER = absorber, VAC_REG=hf_region_vac, ABS_REG = hf_region_absorber)
     _write_command_file(ICOOL_PATH, "for001.dat", content_to_run)
     call("../icool")
 
@@ -396,8 +401,8 @@ def optimization_step(p):
 
 
 
-def optimize_radius(p, beam, beta_lf, beta_hf, absorber):
-    run_icool_sheet_mdl(p, beam, absorber)
+def optimize_radius(p, beam, beta_lf, beta_hf, absorber, abs_len):
+    run_icool_sheet_mdl(p, beam, absorber, abs_len)
     df, nfinal, emit_red = run_ecalc()
 
     beta_center_hf = df.loc[df['Z'] == 2.5, 'beta'].values[0]
@@ -546,9 +551,9 @@ def es_optimization(ES_steps, init_params, p_min, p_max, osc_size, k_es, plot_on
 
 
 
-def param_scan(beam, beta_lf, beta_hf, absorber, iter_n, init_params, bounds):
+def param_scan(beam, beta_lf, beta_hf, absorber, abs_len, iter_n, init_params, bounds):
     # can be parallized with workers = -1
-    res = differential_evolution(optimize_radius, args=(beam, beta_lf, beta_hf, absorber), 
+    res = differential_evolution(optimize_radius, args=(beam, beta_lf, beta_hf, absorber, abs_len), 
                 bounds=bounds, popsize = 6, maxiter=iter_n)
     result = res.x
     return res.x
@@ -565,7 +570,7 @@ def run_optimisation(beam, beta_lf, beta_hf, absorber, method, matching, cooling
                 np.array([bounds[0][1], bounds[1][1], bounds[2][1], bounds[3][1]]), #, bounds[4][1], bounds[5][1]]),
                 osc_size = 0.15, k_es = 0.5, plot_on = True)
         elif method == "diff_evolution":
-            params = param_scan(beam, beta_lf, beta_hf, absorber, iter_n, params, bounds)
+            params = param_scan(beam, beta_lf, beta_hf, absorber, abs_len, iter_n, params, bounds)
     #if cooling:
 
     return params
@@ -579,20 +584,26 @@ if __name__ == '__main__':
     absorber = "VAC"
     sigma_xy, sigma_px_py, beta_lf, beta_hf = define_beam(emit_n=300*1e-06, pz_init=pz, b_lf=4.5, b_hf=30)
     beam = [pz, sigma_xy, sigma_px_py, ninit]
-    opt_params = run_optimisation(beam, beta_lf, beta_hf, absorber, "diff_evolution", matching=True, cooling=False)
+    # opt_params = run_optimisation(beam, beta_lf, beta_hf, absorber, abs_len, "diff_evolution", matching=True, cooling=False)
     # opt_params = None just runs exisiting for001 without replacing template settings
-    print("Optimal results: {}".format(opt_params))
-    plt.plot(range(len(opt_loss)), opt_loss)
-    plt.show()
-    run_icool_sheet_mdl(sol_params=opt_params, beam_params = beam, absorber = "LH")
+    # print("Optimal results: {}".format(opt_params))
+    # plt.plot(range(len(opt_loss)), opt_loss)
+    # plt.show()
+    # 
+    # absorbers = LH, LHE,  LIH, LI, BE
+    # material lengths: 1m, 1m, 0.1m 0.1m, Be - ? 0.5? 0.2?
+    abs_len = 0.2
+    run_icool_sheet_mdl(sol_params=[0.350089], beam_params = beam, absorber = "LIH", abs_len=0.2)
     plot_energy_spread("for009.dat")
     dataframe, nfinal, emit_red = run_ecalc()
-    plot_bz("for009.dat")
+    # plot_bz("for009.dat")
     plot_from_ecalc(dataframe, nfinal, ninit)
 
 
 # optimal for p = 135Mev/c
 # r_HF: 0.350089
+# second result: [0.57057834]
+
 
 
 # for p = 150MeV/c: 
