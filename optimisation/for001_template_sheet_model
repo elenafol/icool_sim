@@ -54,7 +54,20 @@
   ENDREPEAT
 
   REPEAT
-  100
+  $VAC_REG
+  OUTPUT
+  SREGION         ! Drift
+  0.01  1    1e-2
+  1  0.   &apertr
+  NONE
+    0. 0. 0. 0. 0.   0. 0. 0. 0. 0.  0. 0. 0. 0. 0.
+  VAC
+  CBLOCK
+  0. 0. 0. 0. 0.   0. 0. 0. 0. 0.
+  ENDREPEAT
+
+  REPEAT
+  $ABS_REG
   OUTPUT
   SREGION         ! Drift
   0.01  1    1e-2
@@ -62,6 +75,20 @@
   NONE
     0. 0. 0. 0. 0.   0. 0. 0. 0. 0.  0. 0. 0. 0. 0.
   $ABSORBER
+  CBLOCK
+  0. 0. 0. 0. 0.   0. 0. 0. 0. 0.
+  ENDREPEAT
+
+
+  REPEAT
+  $VAC_REG
+  OUTPUT
+  SREGION         ! Drift
+  0.01  1    1e-2
+  1  0.   &apertr
+  NONE
+    0. 0. 0. 0. 0.   0. 0. 0. 0. 0.  0. 0. 0. 0. 0.
+  VAC
   CBLOCK
   0. 0. 0. 0. 0.   0. 0. 0. 0. 0.
   ENDREPEAT
