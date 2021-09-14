@@ -116,7 +116,7 @@ def plot_bz(output_file):
 
 
 # TODO: faster loop through dataframe
-def plot_energy_spread(output_file):
+def get_energy_spread(output_file, plot):
     df = df_from_icool(output_file)
     regions = np.unique(df.reg.values)
     espread_in_reg = []
@@ -132,21 +132,23 @@ def plot_energy_spread(output_file):
                 ekin_part.append(energy_mom_translation("pz", pz))
             espread_in_reg.append(np.std(ekin_part))
             ekin_in_reg.append(np.mean(ekin_part))
+    if plot:
+        fig, ax1 = plt.subplots()
+        color = "tab:red"
+        ax1.set_xlabel("z [m]")
+        ax1.set_ylabel(r'$\sigma E_{kin}$ [MeV]', color=color)
+        ax1.plot(z, np.array(espread_in_reg)*1e3, color=color)
+        ax1.tick_params(axis='y', labelcolor=color)
 
-    fig, ax1 = plt.subplots()
-    color = "tab:red"
-    ax1.set_xlabel("z [m]")
-    ax1.set_ylabel(r'$\sigma E_{kin}$ [MeV]', color=color)
-    ax1.plot(z, np.array(espread_in_reg)*1e3, color=color)
-    ax1.tick_params(axis='y', labelcolor=color)
+        ax2 = ax1.twinx()
+        color="tab:blue"
+        ax2.set_ylabel(r'$E_{kin}$ [MeV]', color=color)
+        ax2.plot(z, np.array(ekin_in_reg)*1e3, color=color)
+        ax2.tick_params(axis='y', labelcolor=color)
+        fig.tight_layout()
+        plt.show()
 
-    ax2 = ax1.twinx()
-    color="tab:blue"
-    ax2.set_ylabel(r'$E_{kin}$ [MeV]', color=color)
-    ax2.plot(z, np.array(ekin_in_reg)*1e3, color=color)
-    ax2.tick_params(axis='y', labelcolor=color)
-    fig.tight_layout()
-    plt.show()
+    return np.array(espread_in_reg)*1e3
 
 
 
@@ -344,10 +346,11 @@ def define_beam(emit_n, pz_init, b_lf, b_hf):
 
 
 
+# quantity argument is the quantity which is provided
 def energy_mom_translation(quantity, value):
     res = value
     if quantity=="ekin":
-        gamma = 1 + ekin/mu_mass
+        gamma = 1 + value/mu_mass
         res = mu_mass*np.sqrt(gamma**2-1)
     if quantity=="pz":
         gamma=np.sqrt((value/mu_mass)**2+1)
@@ -576,6 +579,41 @@ def run_optimisation(beam, beta_lf, beta_hf, absorber, method, matching, cooling
     return params
 
 
+def vary_ekin_plot():
+    ninit=1000
+    energy_scale = [10, 20, 30, 40, 50, 60, 70]     # Ekin in MeV
+    absorbers = ["LH", "LHE", "LI"]
+    emitt_red_in_absorbers = dict.fromkeys(absorbers, [])
+    e_spread_in_absorbers = dict.fromkeys(absorbers, [])
+    transmis_in_absorbers = dict.fromkeys(absorbers, [])
+    
+    for absorber in absorbers:
+        emitt_red_in_absorbers[absorber] = []
+        e_spread_in_absorbers[absorber] = []
+        transmis_in_absorbers[absorber] = []
+        for ekin in energy_scale:
+            pz =  energy_mom_translation("ekin", ekin*0.001)  # icool unit is GeV
+            sigma_xy, sigma_px_py, beta_lf, beta_hf = define_beam(emit_n=300*1e-06, pz_init=pz, b_lf=4.5, b_hf=30)
+            beam = [pz, sigma_xy, sigma_px_py, ninit]
+            run_icool_sheet_mdl(sol_params=[0.350089], beam_params = beam, absorber = absorber, abs_len=0.2)
+            energy_spread_in_regions = get_energy_spread("for009.dat", plot=False)
+            dataframe, nfinal, emit_red = run_ecalc()
+
+            emitt_red_in_absorbers[absorber].append(emit_red)
+            transmis_in_absorbers[absorber].append(float(nfinal)/float(ninit)*100)
+            e_spread_in_absorbers[absorber].append(np.max(energy_spread_in_regions))
+
+        plt.plot(np.array(transmis_in_absorbers.get(absorber)), np.array(energy_scale), label = absorber)
+    print(transmis_in_absorbers)
+    # plt.xlabel(r'$\Delta \varepsilon / \varepsilon_{init}$ [%]')
+    # plt.xlabel('Transmission [%]')
+    plt.xlabel(r'$\sigma E_{max}$ [MeV]')
+    plt.ylabel(r'$E_{init}$ [MeV]')
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
 if __name__ == '__main__':
     ninit=1000
     pz = 0.135
@@ -584,12 +622,12 @@ if __name__ == '__main__':
     absorber = "VAC"
     sigma_xy, sigma_px_py, beta_lf, beta_hf = define_beam(emit_n=300*1e-06, pz_init=pz, b_lf=4.5, b_hf=30)
     beam = [pz, sigma_xy, sigma_px_py, ninit]
-    # opt_params = run_optimisation(beam, beta_lf, beta_hf, absorber, abs_len, "diff_evolution", matching=True, cooling=False)
-    # opt_params = None just runs exisiting for001 without replacing template settings
-    # print("Optimal results: {}".format(opt_params))
-    # plt.plot(range(len(opt_loss)), opt_loss)
-    # plt.show()
-    # 
+    opt_params = run_optimisation(beam, beta_lf, beta_hf, absorber, abs_len, "diff_evolution", matching=True, cooling=False)
+    opt_params = None just runs exisiting for001 without replacing template settings
+    print("Optimal results: {}".format(opt_params))
+    plt.plot(range(len(opt_loss)), opt_loss)
+    plt.show()
+    
     # absorbers = LH, LHE,  LIH, LI, BE
     # material lengths: 1m, 1m, 0.1m 0.1m, Be - ? 0.5? 0.2?
     abs_len = 0.2
@@ -600,17 +638,26 @@ if __name__ == '__main__':
     plot_from_ecalc(dataframe, nfinal, ninit)
 
 
+# Emittance reduction
+# Start emittance: 302.3, Emittance at the end: 263.6, Emittance reduction: 0.128018524644 %
+# {'LHE': [0.8122394971882236, 0.8149189546807807, 0.21104862719153147, 0.1081706913661925, 0.07310618590803827, 0.05094277208071445, 0.04134965266291745], 'LH': [0.8240820377108832, 0.8796559708898445, 0.2848164075421766, 0.15216672179953672, 0.0922924247436321, 0.07476017201455479, 0.05755871650678128], 'LI': [0.43962950711214016, 0.7034072113794243, 0.8181276877274231, 0.8779027456169369, 0.3870327489249089, 0.19318557724115104, 0.12801852464439278]}
+
+# Transmission: to be repeated!
+# {'LHE': [0, 0, 1, 1, 1, 1, 1], 'LH': [0, 0, 0, 1, 1, 1, 1], 'LI': [0, 0, 0, 0, 0, 1, 1]}
+
+
+#energy spread
+# {'LHE': [nan, 2.590794969232273, 2.5424141392319672, 2.375566685963562, 2.2516533544924444, 2.0925462085209197, 1.9635139285480683], 'LH': [nan, nan, 2.5424141392319672, 2.361558754585717, 2.225701230860272, 2.094562073930133, 1.9770886910947945], 'LI': [nan, nan, nan, nan, 2.573097549435444, 2.743930187808943, 2.560288890793425]}
+
+
 # optimal for p = 135Mev/c
 # r_HF: 0.350089
 # second result: [0.57057834]
-
-
 
 # for p = 150MeV/c: 
 # using optimization results for HF_Radius obtained with matching for 135 MeV/c (r_HF = 0.350089):
 # Start emittance: 300.3, Emittance at the end: 229.6, Emittance reduction: 0.235431235431 %
 # ---> worth to rerun the optimization? ---> TODO: try much lower energies
-
 
 # after running optimization for this specific energy, to match the optics first --> r_HF = 0.5156793093558257:
 # Start emittance: 300.3, Emittance at the end: 224.3, Emittance reduction: 0.25308025308 %
